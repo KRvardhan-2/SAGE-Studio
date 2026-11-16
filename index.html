@@ -1,0 +1,2611 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAGE Studio — Cloud Multi-User Map Editor</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+  <!-- Leaflet Draw CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Ace Editor -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/mode-json.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/theme-tomorrow_night_eighties.js"></script>
+
+  <!-- TopoJSON Client Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+
+  <!-- Supabase JS SDK v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* Public tile CSS filters - 100% watermark-free, zero map API tokens required */
+    .tiles-dark {
+      filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(90%) saturate(85%) !important;
+    }
+    .tiles-light {
+      filter: grayscale(100%) brightness(103%) contrast(95%) !important;
+    }
+    .tiles-osm, .tiles-satellite, .tiles-topo {
+      filter: none !important;
+    }
+
+    /* Leaflet Draw & Controls styling */
+    .leaflet-pane { z-index: 10 !important; }
+    .leaflet-top, .leaflet-bottom { z-index: 20 !important; }
+    .leaflet-draw-toolbar a {
+      background-color: #1e293b !important;
+      border-color: #334155 !important;
+      color: #f8fafc !important;
+    }
+    .leaflet-draw-toolbar a:hover {
+      background-color: #334155 !important;
+    }
+    .leaflet-draw-actions {
+      background-color: #1e293b !important;
+      border-radius: 6px !important;
+    }
+    .leaflet-draw-actions li a {
+      background-color: #1e293b !important;
+      color: #cbd5e1 !important;
+    }
+    .leaflet-draw-actions li a:hover {
+      background-color: #334155 !important;
+      color: #ffffff !important;
+    }
+
+    /* Draggable Splitter */
+    .custom-splitter {
+      cursor: col-resize;
+      transition: background-color 0.15s ease;
+    }
+    .custom-splitter:hover, .custom-splitter.dragging {
+      background-color: #6366f1 !important;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    #toast {
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col bg-slate-950 text-slate-100 font-sans select-none overflow-hidden">
+
+  <!-- ===================================================================== -->
+  <!-- MULTI-USER AUTHENTICATION GATE MODAL                                  -->
+  <!-- ===================================================================== -->
+  <div id="loginModal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
+      <div class="p-6 text-center border-b border-slate-800 bg-gradient-to-b from-indigo-950/40 to-slate-900">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30 mx-auto mb-3">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <h2 class="text-lg font-bold text-white tracking-tight">SAGE Studio</h2>
+        <p class="text-xs text-slate-400 mt-1">Sign in to access your private cloud map vault</p>
+        <div id="loginCloudPill" class="inline-flex items-center gap-1.5 mt-2.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/70 text-amber-300 border border-amber-800/70">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          <span id="loginCloudPillText">Checking Supabase Connection...</span>
+        </div>
+      </div>
+
+      <form id="loginForm" class="p-6 space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Username</label>
+          <div class="relative">
+            <i data-lucide="user" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input type="text" id="loginUsername" required autocomplete="username" placeholder="Enter your username" class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 transition">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
+          <div class="relative">
+            <i data-lucide="key-round" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+            <input type="password" id="loginPassword" required autocomplete="current-password" placeholder="Enter your password" class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 transition">
+          </div>
+        </div>
+
+        <div id="loginErrorMsg" class="hidden text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 px-3 py-2 rounded-lg flex items-center gap-2">
+          <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+          <span id="loginErrorText">Invalid username or password.</span>
+        </div>
+
+        <button type="submit" id="btnLoginSubmit" class="w-full py-2.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-md shadow-indigo-600/30 transition flex items-center justify-center gap-2">
+          <i data-lucide="log-in" class="w-4 h-4"></i>
+          <span>Sign In to Private Workspace</span>
+        </button>
+
+        <!-- Credential File Upload Section -->
+        <div class="pt-3 border-t border-slate-800 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-medium text-slate-400">Or verify via credentials file (.txt / .csv)</span>
+            <input type="file" id="authFileInput" accept=".txt,.csv,.json" class="hidden">
+            <button type="button" id="btnUploadAuthFile" class="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-indigo-950/50 border border-indigo-800/60 px-2.5 py-1 rounded-lg transition">
+              <i data-lucide="file-up" class="w-3.5 h-3.5"></i>
+              <span>Load users.txt</span>
+            </button>
+          </div>
+          <p id="authFileStatus" class="text-[10px] text-slate-500">
+            Supports <code class="text-slate-400">username:password:role</code> or <code class="text-slate-400">username,password</code> per line.
+          </p>
+        </div>
+
+        <!-- Quick Starter Accounts -->
+        <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1.5">
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Quick-Fill Starter Accounts</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" onclick="quickFillLogin('admin', 'admin123')" class="px-2 py-1 text-[11px] bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-md text-slate-300 font-mono transition">admin / admin123</button>
+            <button type="button" onclick="quickFillLogin('mapper', 'geo2026')" class="px-2 py-1 text-[11px] bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-md text-slate-300 font-mono transition">mapper / geo2026</button>
+            <button type="button" onclick="quickFillLogin('guest', 'explore')" class="px-2 py-1 text-[11px] bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-md text-slate-300 font-mono transition">guest / explore</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TOP NAVIGATION & TOOLBAR HEADER                                       -->
+  <!-- ===================================================================== -->
+  <header class="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 md:px-4 z-30 shrink-0 gap-2">
+    <!-- Brand + Cloud Sync Badge -->
+    <div class="flex items-center space-x-2.5 shrink-0">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
+        <i data-lucide="map" class="w-4 h-4"></i>
+      </div>
+      <div class="hidden sm:block">
+        <h1 class="font-bold text-sm tracking-tight text-white flex items-center gap-2">
+          SAGE Studio
+          <span id="headerCloudBadge" class="text-[10px] font-semibold uppercase tracking-wider bg-amber-950/80 text-amber-300 border border-amber-700/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span id="headerCloudDot" class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            <span id="headerCloudLabel">Local Fallback</span>
+          </span>
+        </h1>
+      </div>
+    </div>
+
+    <!-- Nominatim Place Geocoder Search Bar -->
+    <form id="geocoderForm" class="flex-1 max-w-xs md:max-w-sm relative">
+      <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+      <input type="text" id="geocoderInput" placeholder="Jump to city, school, landmark (OSM)..." class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-16 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition">
+      <button type="submit" id="btnGeocodeSearch" class="absolute right-1 top-1 px-2 py-0.5 text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">Go</button>
+    </form>
+
+    <!-- Action Controls -->
+    <div class="flex items-center space-x-1.5 shrink-0">
+      <!-- Query OSM Overpass Structures -->
+      <button id="btnToggleOsmPanel" title="Search & Extract Real-World OSM Structures" class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-sm shadow-emerald-600/30 transition">
+        <i data-lucide="radar" class="w-3.5 h-3.5"></i>
+        <span class="hidden lg:inline">Query OSM</span>
+      </button>
+
+      <!-- Save Record to Private Cloud Vault -->
+      <button id="btnOpenSaveProject" title="Save current map to your private vault" class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition text-slate-200">
+        <i data-lucide="cloud-upload" class="w-3.5 h-3.5 text-sky-400"></i>
+        <span class="hidden md:inline">Save</span>
+      </button>
+
+      <!-- Private Vault Drawer Toggle -->
+      <button id="btnToggleRecords" title="Open your isolated user records" class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition text-slate-200">
+        <i data-lucide="folder-lock" class="w-3.5 h-3.5 text-amber-400"></i>
+        <span class="hidden md:inline">Records</span>
+        <span id="recordsCountBadge" class="text-[10px] font-bold bg-indigo-600 text-white px-1.5 py-0.2 rounded-full">0</span>
+      </button>
+
+      <!-- Open Local File -->
+      <input type="file" id="fileInput" accept=".geojson,.json,.kml,.topojson" class="hidden">
+      <button id="btnOpen" title="Open GeoJSON / KML / TopoJSON file" class="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition text-slate-200">
+        <i data-lucide="folder-open" class="w-3.5 h-3.5 text-slate-400"></i>
+      </button>
+
+      <!-- Clear Canvas -->
+      <button id="btnClear" title="Clear canvas" class="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-slate-800 hover:bg-rose-950/50 hover:border-rose-800/60 border border-slate-700 rounded-lg transition text-slate-200">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-400"></i>
+      </button>
+
+      <!-- Export Dropdown -->
+      <div class="relative" id="exportMenuContainer">
+        <button id="btnExportToggle" class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-sm shadow-indigo-600/30 transition">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">Export</span>
+          <i data-lucide="chevron-down" class="w-3 h-3"></i>
+        </button>
+
+        <div id="exportDropdown" class="hidden absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1 z-50">
+          <button id="btnDownloadGeoJSON" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-indigo-600/20 hover:text-indigo-300 flex items-center gap-2">
+            <i data-lucide="file-json" class="w-4 h-4 text-emerald-400"></i>
+            <span>GeoJSON (.geojson)</span>
+          </button>
+          <button id="btnDownloadKML" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-indigo-600/20 hover:text-indigo-300 flex items-center gap-2">
+            <i data-lucide="globe" class="w-4 h-4 text-amber-400"></i>
+            <span>Google Earth KML (.kml)</span>
+          </button>
+          <button id="btnDownloadCSV" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-indigo-600/20 hover:text-indigo-300 flex items-center gap-2">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-sky-400"></i>
+            <span>Attributes CSV (.csv)</span>
+          </button>
+          <button id="btnDownloadTopoJSON" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-indigo-600/20 hover:text-indigo-300 flex items-center gap-2">
+            <i data-lucide="layers" class="w-4 h-4 text-purple-400"></i>
+            <span>TopoJSON (.topojson)</span>
+          </button>
+          <div class="border-t border-slate-800 my-1"></div>
+          <button id="btnCopyJSON" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-indigo-600/20 hover:text-indigo-300 flex items-center gap-2">
+            <i data-lucide="copy" class="w-4 h-4 text-violet-400"></i>
+            <span>Copy Raw JSON to Clipboard</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="h-5 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
+
+      <!-- User Profile / Manage Users / Logout -->
+      <div class="flex items-center gap-1">
+        <button id="btnOpenUserManager" title="Manage Authorized Users & Credentials File" class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 transition">
+          <i data-lucide="users" class="w-3.5 h-3.5 text-violet-400"></i>
+          <span id="activeUsernameDisplay" class="font-semibold text-white max-w-[75px] truncate">Guest</span>
+        </button>
+        <button id="btnLogout" title="Sign Out & Wipe Canvas" class="p-1.5 text-xs bg-slate-800 hover:bg-rose-950/60 border border-slate-700 hover:border-rose-800/60 text-slate-400 hover:text-rose-300 rounded-lg transition">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- MAIN WORKSPACE: SPLIT MAP + CODE / TABLE EDITOR                       -->
+  <!-- ===================================================================== -->
+  <main class="flex-1 flex flex-col md:flex-row relative min-h-0">
+    <!-- Left Side: Interactive Leaflet Map -->
+    <div id="mapWrapper" class="relative w-full md:w-3/5 h-1/2 md:h-full flex flex-col bg-slate-950">
+      <div id="map" class="w-full h-full z-0 cursor-crosshair"></div>
+
+      <!-- 5 Free Basemaps Switcher -->
+      <div class="absolute top-3 right-3 z-20 flex bg-slate-900/90 backdrop-blur border border-slate-800 rounded-lg shadow-lg p-1 space-x-1">
+        <button id="bmDark" class="basemap-btn active px-2.5 py-1 text-[11px] font-medium rounded bg-indigo-600 text-white transition">Dark</button>
+        <button id="bmOsm" class="basemap-btn px-2.5 py-1 text-[11px] font-medium rounded text-slate-300 hover:bg-slate-800 transition">OSM</button>
+        <button id="bmLight" class="basemap-btn px-2.5 py-1 text-[11px] font-medium rounded text-slate-300 hover:bg-slate-800 transition">Light Gray</button>
+        <button id="bmSatellite" class="basemap-btn px-2.5 py-1 text-[11px] font-medium rounded text-slate-300 hover:bg-slate-800 transition">Satellite</button>
+        <button id="bmTopo" class="basemap-btn px-2.5 py-1 text-[11px] font-medium rounded text-slate-300 hover:bg-slate-800 transition">Topo</button>
+      </div>
+
+      <!-- OSM Overpass API Structure Extractor Drawer -->
+      <div id="osmQueryPanel" class="hidden absolute top-3 left-12 z-20 w-80 sm:w-96 bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100%-2.5rem)]">
+        <div class="p-3.5 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-emerald-950/60 to-slate-900">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 flex items-center justify-center">
+              <i data-lucide="radar" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h2 class="text-xs font-bold text-white uppercase tracking-wider">OSM Structure Extractor</h2>
+              <p class="text-[10px] text-slate-400">Live Overpass API Spatial Query</p>
+            </div>
+          </div>
+          <button id="btnCloseOsmPanel" class="text-slate-400 hover:text-white p-1 rounded-lg">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="p-3.5 space-y-3 overflow-y-auto text-xs">
+          <div>
+            <label class="block font-semibold text-slate-300 mb-1">Structure / Body Category</label>
+            <select id="osmCategorySelect" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500">
+              <option value="schools">Schools & Kindergartens</option>
+              <option value="hospitals">Hospitals & Clinics</option>
+              <option value="universities">Universities & Colleges</option>
+              <option value="pharmacies">Pharmacies</option>
+              <option value="parks">Parks & Playgrounds</option>
+              <option value="police">Police Stations</option>
+              <option value="fire_stations">Fire Stations</option>
+              <option value="restaurants">Restaurants & Cafes</option>
+              <option value="banks">Banks & ATMs</option>
+              <option value="supermarkets">Supermarkets & Grocery</option>
+              <option value="buildings">Building Footprints</option>
+              <option value="custom">Custom OSM Key=Value Tag</option>
+            </select>
+          </div>
+
+          <div id="osmCustomTagRow" class="hidden grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">OSM Key (e.g. railway)</label>
+              <input type="text" id="osmCustomKey" placeholder="amenity" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">OSM Value (or *)</label>
+              <input type="text" id="osmCustomVal" placeholder="library" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono">
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-slate-300 mb-1">Search Scope</label>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg cursor-pointer">
+                <input type="radio" name="osmScope" value="bbox" checked class="accent-emerald-500">
+                <span>Current Viewport</span>
+              </label>
+              <label class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg cursor-pointer">
+                <input type="radio" name="osmScope" value="radius" class="accent-emerald-500">
+                <span>Center Radius</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="osmRadiusRow" class="hidden space-y-1">
+            <div class="flex justify-between text-[11px] text-slate-400">
+              <span>Search Radius around Map Center:</span>
+              <span id="osmRadiusLabel" class="font-mono text-emerald-400 font-semibold">1500 m</span>
+            </div>
+            <input type="range" id="osmRadiusSlider" min="300" max="5000" step="100" value="1500" class="w-full accent-emerald-500">
+          </div>
+
+          <button id="btnExecuteOsmQuery" class="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition disabled:opacity-50">
+            <i data-lucide="search" class="w-3.5 h-3.5"></i>
+            <span>Extract Structures from OSM</span>
+          </button>
+
+          <div id="osmQueryStatus" class="hidden p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300"></div>
+
+          <div id="osmResultActions" class="hidden p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/50 space-y-2">
+            <div class="flex items-center justify-between">
+              <span id="osmFoundCount" class="font-bold text-emerald-300">0 structures found</span>
+              <button id="btnClearOsmPreview" class="text-[11px] text-slate-400 hover:text-white underline">Discard</button>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btnAppendOsmFeatures" class="py-1.5 px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold text-[11px] transition">
+                + Append to Map
+              </button>
+              <button id="btnReplaceOsmFeatures" class="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold text-[11px] transition">
+                Replace Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Private User Vault Records Drawer -->
+      <div id="recordsDrawer" class="hidden absolute top-3 left-12 z-20 w-80 sm:w-96 bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100%-2.5rem)]">
+        <div class="p-3.5 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-amber-950/50 to-slate-900">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-amber-600/25 border border-amber-500/40 text-amber-400 flex items-center justify-center">
+              <i data-lucide="lock" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h2 class="text-xs font-bold text-white uppercase tracking-wider">Private Vault of <span id="vaultOwnerLabel" class="text-amber-400">User</span></h2>
+              <p id="vaultStorageSourceLabel" class="text-[10px] text-slate-400">Isolated per-user cloud records</p>
+            </div>
+          </div>
+          <button id="btnCloseRecordsDrawer" class="text-slate-400 hover:text-white p-1 rounded-lg">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="p-3 border-b border-slate-800 flex items-center gap-2 bg-slate-900/80">
+          <input type="text" id="recordsSearchInput" placeholder="Search your saved maps..." class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500">
+          <button id="btnRefreshRecords" title="Sync from Cloud" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <div id="recordsListContainer" class="p-3 overflow-y-auto flex-1 space-y-2.5 text-xs">
+          <!-- Dynamically populated user-isolated records -->
+        </div>
+      </div>
+
+      <!-- Full-window drag & drop overlay -->
+      <div id="dropOverlay" class="absolute inset-0 bg-indigo-950/85 backdrop-blur-sm border-2 border-dashed border-indigo-400 z-30 hidden flex-col items-center justify-center pointer-events-none">
+        <i data-lucide="upload-cloud" class="w-12 h-12 text-indigo-300 mb-2 animate-bounce"></i>
+        <p class="text-sm font-semibold text-white">Drop GeoJSON, KML or TopoJSON file here</p>
+        <p class="text-xs text-slate-300">Geometries will load immediately onto the map</p>
+      </div>
+
+      <!-- Bottom Map Status Bar -->
+      <div class="absolute bottom-3 left-3 z-20 flex items-center space-x-2 bg-slate-900/90 backdrop-blur border border-slate-800 text-[11px] font-mono px-3 py-1.5 rounded-lg shadow-lg text-slate-300">
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="crosshair" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span id="cursorCoords">Lat: 0.0000, Lng: 0.0000</span>
+        </div>
+        <span class="text-slate-600">|</span>
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span id="featureCount">0 features</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Draggable Split Divider -->
+    <div id="dragDivider" class="custom-splitter w-full md:w-1.5 h-1.5 md:h-full bg-slate-800 hover:bg-indigo-500 shrink-0 select-none z-20"></div>
+
+    <!-- Right Side: GeoJSON Ace Editor & Attributes Table Inspector -->
+    <div id="sidePanel" class="w-full md:w-2/5 h-1/2 md:h-full flex flex-col bg-slate-900 border-l border-slate-800 min-w-0">
+      
+      <!-- Panel Header Tabs -->
+      <div class="h-10 bg-slate-900 border-b border-slate-800 px-3 flex items-center justify-between shrink-0">
+        <div class="flex space-x-1">
+          <button id="tabJson" class="tab-btn flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-t-md border-b-2 border-indigo-500 text-indigo-400 bg-slate-800/60">
+            <i data-lucide="code" class="w-3.5 h-3.5"></i>
+            <span>GeoJSON Editor</span>
+          </button>
+          <button id="tabTable" class="tab-btn flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-t-md border-b-2 border-transparent text-slate-400 hover:text-slate-200">
+            <i data-lucide="table" class="w-3.5 h-3.5"></i>
+            <span>Table Inspector</span>
+          </button>
+        </div>
+
+        <div id="jsonActionGroup" class="flex items-center space-x-1">
+          <button id="btnFormatJson" title="Format & Beautify GeoJSON" class="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition flex items-center gap-1">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span>Beautify</span>
+          </button>
+        </div>
+
+        <div id="tableActionGroup" class="hidden flex items-center space-x-1.5">
+          <button id="btnAddColumnBtn" title="Add a new property field to all features" class="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition flex items-center gap-1">
+            <i data-lucide="plus" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>Add Column</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- JSON Code Editor Panel -->
+      <div id="panelJson" class="flex-1 flex flex-col min-h-0 relative">
+        <div id="editor" class="w-full h-full text-xs"></div>
+        <div id="jsonErrorBar" class="hidden absolute bottom-0 inset-x-0 bg-rose-950/95 border-t border-rose-700 px-3 py-2 text-xs text-rose-200 flex items-center justify-between z-20">
+          <div class="flex items-center gap-2 truncate">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+            <span id="jsonErrorMessage" class="truncate font-mono">Invalid JSON</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attributes Table Inspector Panel -->
+      <div id="panelTable" class="hidden flex-1 flex flex-col min-h-0 overflow-hidden bg-slate-900">
+        <div class="p-2 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
+          <input id="tableSearch" type="text" placeholder="Filter features by attributes..." class="bg-slate-800 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 w-full focus:outline-none focus:border-indigo-500 text-slate-200 placeholder-slate-500">
+          <button id="btnFitMapFeatures" title="Zoom to fit all features on map" class="px-2.5 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg whitespace-nowrap flex items-center gap-1">
+            <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+            <span>Fit Map</span>
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-auto p-2" id="tableContainer">
+          <!-- Dynamic table rendered here -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- SAVE PROJECT TO PRIVATE VAULT MODAL                                   -->
+  <!-- ===================================================================== -->
+  <div id="saveProjectModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-5">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-sky-600/20 text-sky-400 flex items-center justify-center">
+            <i data-lucide="cloud-upload" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Save Map to Private Vault</h3>
+            <p class="text-[11px] text-slate-400">Only accessible by <span id="saveModalOwnerName" class="text-sky-400 font-semibold">you</span></p>
+          </div>
+        </div>
+        <button id="btnCloseSaveProject" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 mt-4 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Project / Map Title *</label>
+          <input type="text" id="projectTitleInput" placeholder="e.g., Hyderabad Hospitals Survey" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Notes / Description</label>
+          <textarea id="projectDescInput" rows="2" placeholder="Optional description of boundaries or features..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 mt-5">
+        <button id="btnCancelSaveProject" class="px-3.5 py-1.5 text-xs text-slate-400 hover:bg-slate-800 rounded-lg transition">Cancel</button>
+        <button id="btnConfirmSaveProject" class="px-4 py-1.5 text-xs bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-semibold shadow-sm transition">Save Record</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- USER MANAGER & CREDENTIALS FILE MODAL                                 -->
+  <!-- ===================================================================== -->
+  <div id="userManagerModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-violet-600/20 text-violet-400 flex items-center justify-center">
+            <i data-lucide="users" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Authorized Users Registry</h3>
+            <p class="text-[11px] text-slate-400">Manage login accounts & export users.txt</p>
+          </div>
+        </div>
+        <button id="btnCloseUserManager" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-4 overflow-y-auto space-y-4 text-xs flex-1">
+        <!-- Add New User Form -->
+        <form id="addUserForm" class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
+          <div class="font-semibold text-slate-300">Add New User Account</div>
+          <div class="grid grid-cols-3 gap-2">
+            <input type="text" id="newUserUsername" required placeholder="Username" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500">
+            <input type="text" id="newUserPassword" required placeholder="Password" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500">
+            <select id="newUserRole" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-violet-500">
+              <option value="Editor">Editor</option>
+              <option value="Admin">Admin</option>
+              <option value="Viewer">Viewer</option>
+            </select>
+          </div>
+          <button type="submit" class="w-full py-1.5 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-lg transition">
+            + Register User
+          </button>
+        </form>
+
+        <!-- Users List -->
+        <div class="space-y-1.5" id="usersRegistryList"></div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-slate-800 bg-slate-900/60 flex justify-between items-center">
+        <button id="btnExportUsersTxt" class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg flex items-center gap-1.5 transition">
+          <i data-lucide="file-down" class="w-3.5 h-3.5 text-emerald-400"></i>
+          <span>Export users.txt</span>
+        </button>
+        <button id="btnDoneUserManager" class="px-4 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- FEATURE PROPERTIES EDITOR MODAL                                       -->
+  <!-- ===================================================================== -->
+  <div id="propModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+      <div class="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-indigo-600/30 text-indigo-400 flex items-center justify-center">
+            <i data-lucide="edit-3" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-white">Feature Properties</h3>
+            <p id="modalGeometryType" class="text-[11px] text-slate-400">Geometry: Unknown</p>
+          </div>
+        </div>
+        <button id="btnCloseModal" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-4 overflow-y-auto space-y-3 flex-1">
+        <div id="propsContainer" class="space-y-2"></div>
+
+        <button id="btnAddPropertyRow" class="mt-2 text-xs flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-medium px-2 py-1 rounded hover:bg-indigo-950/50 transition">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          <span>Add Key-Value Property</span>
+        </button>
+      </div>
+
+      <div class="px-4 py-3 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center gap-2">
+        <button id="btnDeleteFeatureModal" class="px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-950/40 rounded-lg flex items-center gap-1 transition">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Delete Shape</span>
+        </button>
+        <div class="flex gap-2">
+          <button id="btnCancelProps" class="px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded-lg">Cancel</button>
+          <button id="btnSaveProps" class="px-4 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium shadow-sm transition">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- CUSTOM INPUT / CONFIRMATION MODALS (NO NATIVE ALERT/PROMPT/CONFIRM)   -->
+  <!-- ===================================================================== -->
+  <div id="confirmClearModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden p-5 flex flex-col items-center text-center">
+      <div class="w-10 h-10 rounded-full bg-rose-950/60 border border-rose-800/80 text-rose-400 flex items-center justify-center mb-3">
+        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+      </div>
+      <h3 class="text-base font-semibold text-white">Clear entire canvas?</h3>
+      <p class="text-xs text-slate-400 mt-1 mb-5">This will remove all features from the active map and reset your GeoJSON editor to empty.</p>
+      <div class="flex items-center gap-2 w-full">
+        <button id="btnCancelClear" class="flex-1 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition font-medium">Cancel</button>
+        <button id="btnConfirmClear" class="flex-1 py-1.5 text-xs bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition font-medium">Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="addColumnModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden p-5">
+      <h3 class="text-sm font-bold text-white mb-1">Add Attribute Column</h3>
+      <p class="text-xs text-slate-400 mb-3">Enter a property key name to append across all features:</p>
+      <input type="text" id="newColumnNameInput" placeholder="e.g., category, status, district" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 mb-4">
+      <div class="flex justify-end gap-2">
+        <button id="btnCancelAddColumn" class="px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800 rounded-lg">Cancel</button>
+        <button id="btnConfirmAddColumn" class="px-4 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold">Add Field</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-5 right-5 pointer-events-none opacity-0 translate-y-3 z-50 bg-slate-900 border border-slate-700 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center space-x-2">
+    <i id="toastIcon" data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+    <span id="toastMessage">Action completed</span>
+  </div>
+
+  <!-- Leaflet & Leaflet Draw JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+  <script>
+    // =========================================================================
+    // 1. SUPABASE CLOUD CONFIGURATION (PASTE YOUR TWO KEYS FROM STEP 3 HERE)
+    // =========================================================================
+    const SUPABASE_URL = 'https://rrsmzjjuotursogruvea.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_nfx0DQhtZSfbrxBZCzBb3A_FftfS-O2';
+
+    // Initialize Supabase Client if valid keys are provided
+    let supabaseClient = null;
+    let isCloudConnected = false;
+
+    function initSupabase() {
+      const hasValidPlaceholders =
+        SUPABASE_URL &&
+        SUPABASE_ANON_KEY &&
+        !SUPABASE_URL.includes('YOUR_SUPABASE_URL') &&
+        !SUPABASE_ANON_KEY.includes('YOUR_SUPABASE_ANON_KEY') &&
+        SUPABASE_URL.startsWith('https://');
+
+      if (hasValidPlaceholders && window.supabase) {
+        try {
+          supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          isCloudConnected = true;
+        } catch (err) {
+          console.error('Supabase initialization failed:', err);
+          supabaseClient = null;
+          isCloudConnected = false;
+        }
+      }
+      updateCloudStatusBadges();
+    }
+
+    function updateCloudStatusBadges() {
+      const headerBadge = document.getElementById('headerCloudBadge');
+      const headerDot = document.getElementById('headerCloudDot');
+      const headerLabel = document.getElementById('headerCloudLabel');
+      const loginPill = document.getElementById('loginCloudPill');
+      const loginPillText = document.getElementById('loginCloudPillText');
+      const vaultSourceLabel = document.getElementById('vaultStorageSourceLabel');
+
+      if (isCloudConnected) {
+        headerBadge.className = "text-[10px] font-semibold uppercase tracking-wider bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 px-2 py-0.5 rounded-full flex items-center gap-1";
+        headerDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-400";
+        headerLabel.textContent = "Cloud Synced";
+
+        loginPill.className = "inline-flex items-center gap-1.5 mt-2.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-800/70";
+        loginPill.querySelector('span').className = "w-1.5 h-1.5 rounded-full bg-emerald-400";
+        loginPillText.textContent = "Supabase Cloud Connected";
+
+        if (vaultSourceLabel) {
+          vaultSourceLabel.textContent = "Synced via Supabase PostgreSQL";
+        }
+      } else {
+        headerBadge.className = "text-[10px] font-semibold uppercase tracking-wider bg-amber-950/80 text-amber-300 border border-amber-700/60 px-2 py-0.5 rounded-full flex items-center gap-1";
+        headerDot.className = "w-1.5 h-1.5 rounded-full bg-amber-400";
+        headerLabel.textContent = "Local Fallback";
+
+        loginPill.className = "inline-flex items-center gap-1.5 mt-2.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/70 text-amber-300 border border-amber-800/70";
+        loginPill.querySelector('span').className = "w-1.5 h-1.5 rounded-full bg-amber-400";
+        loginPillText.textContent = "Local Storage Mode (Paste Supabase keys to sync)";
+
+        if (vaultSourceLabel) {
+          vaultSourceLabel.textContent = "Stored in isolated browser localStorage";
+        }
+      }
+    }
+
+    // =========================================================================
+    // 2. APPLICATION STATE & STORAGE KEYS
+    // =========================================================================
+    let map;
+    let drawnItems;
+    let drawControl;
+    let currentTileLayer;
+    let aceEditor;
+    let isProgrammaticUpdate = false;
+    let currentSelectedLayer = null;
+    let tempOsmLayer = null;
+    let tempOsmGeoJson = null;
+
+    const EMPTY_GEOJSON = {
+      type: "FeatureCollection",
+      features: []
+    };
+
+    const STORAGE_KEYS = {
+      USERS_REGISTRY: "geojson_studio_users_v3",
+      ACTIVE_SESSION: "geojson_studio_session_v3",
+      getUserRecordsKey: (username) => `geojson_studio_records_${username.toLowerCase().trim()}`
+    };
+
+    const DEFAULT_USERS = [
+      { username: "admin", password: "admin123", role: "Admin" },
+      { username: "mapper", password: "geo2026", role: "Editor" },
+      { username: "guest", password: "explore", role: "Viewer" }
+    ];
+
+    let authorizedUsers = [];
+    let currentUser = null;
+    let userPrivateRecords = [];
+
+    // =========================================================================
+    // 3. MULTI-USER AUTHENTICATION (SUPABASE + TEXT FILE + LOCAL REGISTRY)
+    // =========================================================================
+    async function loadAuthorizedUsers() {
+      // 1. Load local users first
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.USERS_REGISTRY);
+        authorizedUsers = raw ? JSON.parse(raw) : [...DEFAULT_USERS];
+      } catch (e) {
+        authorizedUsers = [...DEFAULT_USERS];
+      }
+
+      // 2. Merge users from Supabase `studio_users` table if connected
+      if (isCloudConnected && supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient.from('studio_users').select('*');
+          if (!error && Array.isArray(data) && data.length > 0) {
+            data.forEach(cloudUser => {
+              const idx = authorizedUsers.findIndex(u => u.username.toLowerCase() === cloudUser.username.toLowerCase());
+              if (idx >= 0) {
+                authorizedUsers[idx] = { username: cloudUser.username, password: cloudUser.password, role: cloudUser.role || 'Editor' };
+              } else {
+                authorizedUsers.push({ username: cloudUser.username, password: cloudUser.password, role: cloudUser.role || 'Editor' });
+              }
+            });
+            saveLocalUsersRegistry();
+          }
+        } catch (err) {
+          console.warn("Could not fetch cloud studio_users:", err);
+        }
+      }
+    }
+
+    function saveLocalUsersRegistry() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.USERS_REGISTRY, JSON.stringify(authorizedUsers));
+      } catch (e) {}
+    }
+
+    function parseCredentialsFile(text) {
+      const trimmed = text.trim();
+      if (!trimmed) return 0;
+      let addedCount = 0;
+
+      // Check JSON format first
+      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          const list = Array.isArray(parsed) ? parsed : (parsed.users || []);
+          list.forEach(entry => {
+            if (entry.username && entry.password) {
+              upsertAuthorizedUser(String(entry.username).trim(), String(entry.password).trim(), entry.role || 'Editor');
+              addedCount++;
+            }
+          });
+          return addedCount;
+        } catch (e) {}
+      }
+
+      // Parse line-by-line (username:password:role OR username,password,role)
+      const lines = trimmed.split(/\r?\n/);
+      lines.forEach(line => {
+        const clean = line.trim();
+        if (!clean || clean.startsWith('#') || clean.startsWith('//')) return;
+        const delimiter = clean.includes(':') ? ':' : ',';
+        const parts = clean.split(delimiter).map(p => p.trim());
+        if (parts.length >= 2 && parts[0] && parts[1]) {
+          upsertAuthorizedUser(parts[0], parts[1], parts[2] || 'Editor');
+          addedCount++;
+        }
+      });
+
+      return addedCount;
+    }
+
+    async function upsertAuthorizedUser(username, password, role = 'Editor') {
+      const idx = authorizedUsers.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+      const userObj = { username, password, role };
+      if (idx >= 0) {
+        authorizedUsers[idx] = userObj;
+      } else {
+        authorizedUsers.push(userObj);
+      }
+      saveLocalUsersRegistry();
+
+      if (isCloudConnected && supabaseClient) {
+        try {
+          await supabaseClient.from('studio_users').upsert({
+            username: username.toLowerCase(),
+            password,
+            role
+          });
+        } catch (e) {}
+      }
+    }
+
+    window.quickFillLogin = function(user, pass) {
+      document.getElementById('loginUsername').value = user;
+      document.getElementById('loginPassword').value = pass;
+      document.getElementById('loginErrorMsg').classList.add('hidden');
+    };
+
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
+      const usernameInput = document.getElementById('loginUsername').value.trim();
+      const passwordInput = document.getElementById('loginPassword').value;
+      const errBox = document.getElementById('loginErrorMsg');
+      const errText = document.getElementById('loginErrorText');
+
+      if (!usernameInput || !passwordInput) return;
+
+      // Refresh cloud users if connected
+      await loadAuthorizedUsers();
+
+      const matchedUser = authorizedUsers.find(
+        u => u.username.toLowerCase() === usernameInput.toLowerCase() && u.password === passwordInput
+      );
+
+      if (!matchedUser) {
+        errText.textContent = "Invalid username or password. Check credentials or load users.txt.";
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      errBox.classList.add('hidden');
+      currentUser = { username: matchedUser.username, role: matchedUser.role || 'Editor' };
+      sessionStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(currentUser));
+
+      await enterAuthenticatedWorkspace();
+    }
+
+    async function enterAuthenticatedWorkspace() {
+      document.getElementById('loginModal').classList.add('hidden');
+      document.getElementById('activeUsernameDisplay').textContent = currentUser.username;
+      document.getElementById('vaultOwnerLabel').textContent = currentUser.username;
+      document.getElementById('saveModalOwnerName').textContent = currentUser.username;
+
+      // Start on a clean, empty canvas
+      resetCanvasToEmpty();
+
+      // Load strictly this user's isolated records
+      await loadUserPrivateRecords();
+      showToast(`Welcome, ${currentUser.username}! Private vault unlocked.`);
+    }
+
+    function logoutUser() {
+      currentUser = null;
+      userPrivateRecords = [];
+      sessionStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+
+      // Wipe active workspace so next user sees nothing from previous user
+      resetCanvasToEmpty();
+      document.getElementById('recordsDrawer').classList.add('hidden');
+      document.getElementById('osmQueryPanel').classList.add('hidden');
+      document.getElementById('loginUsername').value = '';
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginModal').classList.remove('hidden');
+      showToast("Signed out & workspace cleared");
+    }
+
+    function resetCanvasToEmpty() {
+      if (drawnItems) drawnItems.clearLayers();
+      if (tempOsmLayer && map && map.hasLayer(tempOsmLayer)) {
+        map.removeLayer(tempOsmLayer);
+        tempOsmLayer = null;
+      }
+      if (aceEditor) {
+        isProgrammaticUpdate = true;
+        aceEditor.setValue(JSON.stringify(EMPTY_GEOJSON, null, 2), -1);
+        isProgrammaticUpdate = false;
+      }
+      renderTable([]);
+      updateStats(0);
+    }
+
+    // =========================================================================
+    // 4. STRICT PER-USER ISOLATED CLOUD RECORDS (SUPABASE + LOCAL FALLBACK)
+    // =========================================================================
+    async function loadUserPrivateRecords() {
+      if (!currentUser) {
+        userPrivateRecords = [];
+        updateRecordsBadge();
+        return;
+      }
+
+      const cleanUsername = currentUser.username.toLowerCase();
+
+      // 1. Fetch from Supabase PostgreSQL filtered strictly by `username`
+      if (isCloudConnected && supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('geojson_records')
+            .select('*')
+            .eq('username', cleanUsername)
+            .order('created_at', { ascending: false });
+
+          if (!error && Array.isArray(data)) {
+            userPrivateRecords = data.map(row => ({
+              id: row.id,
+              username: row.username,
+              title: row.title,
+              description: row.description || '',
+              geojson_data: row.geojson_data,
+              feature_count: row.feature_count || (row.geojson_data?.features?.length || 0),
+              created_at: row.created_at
+            }));
+            // Mirror to local storage for offline resilience
+            localStorage.setItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername), JSON.stringify(userPrivateRecords));
+            updateRecordsBadge();
+            renderRecordsList();
+            return;
+          }
+        } catch (err) {
+          console.warn("Supabase fetch error, using local fallback:", err);
+        }
+      }
+
+      // 2. Fallback to isolated per-user localStorage
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername));
+        userPrivateRecords = raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        userPrivateRecords = [];
+      }
+      updateRecordsBadge();
+      renderRecordsList();
+    }
+
+    function updateRecordsBadge() {
+      document.getElementById('recordsCountBadge').textContent = userPrivateRecords.length;
+    }
+
+    function summarizeGeoJson(geojson) {
+      const features = geojson?.features || [];
+      if (features.length === 0) return "0 features";
+      const counts = {};
+      features.forEach(f => {
+        const t = f.geometry?.type || "Feature";
+        counts[t] = (counts[t] || 0) + 1;
+      });
+      return Object.entries(counts).map(([k, v]) => `${v} ${k}${v > 1 ? 's' : ''}`).join(', ');
+    }
+
+    async function saveCurrentMapRecord() {
+      if (!currentUser) return;
+      const title = document.getElementById('projectTitleInput').value.trim();
+      const description = document.getElementById('projectDescInput').value.trim();
+
+      if (!title) {
+        showToast("Please enter a project title", true);
+        return;
+      }
+
+      let parsedGeoJson;
+      try {
+        parsedGeoJson = JSON.parse(aceEditor.getValue());
+      } catch (err) {
+        showToast("Cannot save: GeoJSON has syntax errors", true);
+        return;
+      }
+
+      const cleanUsername = currentUser.username.toLowerCase();
+      const featureCount = parsedGeoJson.features ? parsedGeoJson.features.length : 0;
+
+      // Save to Supabase Cloud if connected
+      if (isCloudConnected && supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('geojson_records')
+            .insert([{
+              username: cleanUsername,
+              title,
+              description,
+              geojson_data: parsedGeoJson,
+              feature_count: featureCount
+            }])
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          userPrivateRecords.unshift(data);
+          localStorage.setItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername), JSON.stringify(userPrivateRecords));
+          updateRecordsBadge();
+          renderRecordsList();
+          closeSaveProjectModal();
+          showToast(`Saved "${title}" to Supabase Cloud!`);
+          return;
+        } catch (err) {
+          console.error("Supabase insert error:", err);
+          showToast("Cloud save failed — saved locally instead", true);
+        }
+      }
+
+      // Local Storage fallback
+      const localRecord = {
+        id: "loc_" + Date.now(),
+        username: cleanUsername,
+        title,
+        description,
+        geojson_data: parsedGeoJson,
+        feature_count: featureCount,
+        created_at: new Date().toISOString()
+      };
+      userPrivateRecords.unshift(localRecord);
+      localStorage.setItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername), JSON.stringify(userPrivateRecords));
+      updateRecordsBadge();
+      renderRecordsList();
+      closeSaveProjectModal();
+      showToast(`Saved "${title}" to local vault!`);
+    }
+
+    function renderRecordsList() {
+      const container = document.getElementById('recordsListContainer');
+      const query = document.getElementById('recordsSearchInput').value.toLowerCase().trim();
+
+      const filtered = userPrivateRecords.filter(r =>
+        !query ||
+        r.title.toLowerCase().includes(query) ||
+        (r.description && r.description.toLowerCase().includes(query))
+      );
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="py-8 text-center text-slate-500 space-y-1.5">
+            <i data-lucide="folder-open" class="w-8 h-8 mx-auto opacity-40"></i>
+            <p class="font-medium text-slate-400">No saved records found</p>
+            <p class="text-[11px]">Draw shapes or extract OSM buildings, then click <strong>Save</strong> in the top bar.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(rec => {
+        const dateStr = new Date(rec.created_at).toLocaleString([], {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+        const geomSummary = summarizeGeoJson(rec.geojson_data);
+
+        html += `
+          <div class="bg-slate-950 border border-slate-800 hover:border-amber-500/50 rounded-xl p-3 space-y-2 transition">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h4 class="text-xs font-bold text-white">${escapeHtml(rec.title)}</h4>
+                <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                  <span>${dateStr}</span>
+                  <span>&bull;</span>
+                  <span class="text-indigo-400 font-medium">${escapeHtml(geomSummary)}</span>
+                </div>
+              </div>
+              <span class="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                ${rec.id.startsWith('loc_') ? 'Local' : 'Cloud'}
+              </span>
+            </div>
+
+            ${rec.description ? `<p class="text-[11px] text-slate-400 line-clamp-2">${escapeHtml(rec.description)}</p>` : ''}
+
+            <div class="flex items-center justify-between pt-1 border-t border-slate-900 gap-1">
+              <button onclick="loadRecordIntoWorkspace('${rec.id}')" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[11px] font-semibold transition flex items-center gap-1">
+                <i data-lucide="map-pin" class="w-3 h-3"></i> Load Map
+              </button>
+              <div class="flex items-center gap-1">
+                <button onclick="downloadRecordGeoJson('${rec.id}')" title="Download .geojson" class="p-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 rounded-md transition">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                </button>
+                <button onclick="duplicateUserRecord('${rec.id}')" title="Duplicate Record" class="p-1.5 bg-slate-900 hover:bg-slate-800 text-sky-400 rounded-md transition">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+                <button onclick="deleteUserRecord('${rec.id}')" title="Delete Record" class="p-1.5 bg-slate-900 hover:bg-rose-950/60 text-rose-400 rounded-md transition">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    window.loadRecordIntoWorkspace = function(id) {
+      const rec = userPrivateRecords.find(r => r.id === id);
+      if (!rec) return;
+      const cloned = JSON.parse(JSON.stringify(rec.geojson_data));
+      isProgrammaticUpdate = true;
+      aceEditor.setValue(JSON.stringify(cloned, null, 2), -1);
+      isProgrammaticUpdate = false;
+      loadGeoJsonObject(cloned, true);
+      document.getElementById('recordsDrawer').classList.add('hidden');
+      showToast(`Loaded "${rec.title}"`);
+    };
+
+    window.downloadRecordGeoJson = function(id) {
+      const rec = userPrivateRecords.find(r => r.id === id);
+      if (!rec) return;
+      const safeName = rec.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'map-record';
+      downloadFile(JSON.stringify(rec.geojson_data, null, 2), `${safeName}.geojson`, "application/geo+json");
+      showToast(`Downloaded ${safeName}.geojson`);
+    };
+
+    window.duplicateUserRecord = async function(id) {
+      const rec = userPrivateRecords.find(r => r.id === id);
+      if (!rec || !currentUser) return;
+      const cleanUsername = currentUser.username.toLowerCase();
+      const dupTitle = `${rec.title} (Copy)`;
+
+      if (isCloudConnected && supabaseClient && !rec.id.startsWith('loc_')) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('geojson_records')
+            .insert([{
+              username: cleanUsername,
+              title: dupTitle,
+              description: rec.description,
+              geojson_data: rec.geojson_data,
+              feature_count: rec.feature_count
+            }])
+            .select()
+            .single();
+
+          if (!error && data) {
+            userPrivateRecords.unshift(data);
+            localStorage.setItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername), JSON.stringify(userPrivateRecords));
+            updateRecordsBadge();
+            renderRecordsList();
+            showToast(`Duplicated "${rec.title}"`);
+            return;
+          }
+        } catch (e) {}
+      }
+
+      const localDup = {
+        ...rec,
+        id: "loc_" + Date.now(),
+        title: dupTitle,
+        created_at: new Date().toISOString()
+      };
+      userPrivateRecords.unshift(localDup);
+      localStorage.setItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername), JSON.stringify(userPrivateRecords));
+      updateRecordsBadge();
+      renderRecordsList();
+      showToast(`Duplicated "${rec.title}"`);
+    };
+
+    window.deleteUserRecord = async function(id) {
+      if (!currentUser) return;
+      const cleanUsername = currentUser.username.toLowerCase();
+
+      if (isCloudConnected && supabaseClient && !id.startsWith('loc_')) {
+        try {
+          await supabaseClient
+            .from('geojson_records')
+            .delete()
+            .eq('id', id)
+            .eq('username', cleanUsername);
+        } catch (e) {}
+      }
+
+      userPrivateRecords = userPrivateRecords.filter(r => r.id !== id);
+      localStorage.setItem(STORAGE_KEYS.getUserRecordsKey(cleanUsername), JSON.stringify(userPrivateRecords));
+      updateRecordsBadge();
+      renderRecordsList();
+      showToast("Record deleted from vault");
+    };
+
+    function closeSaveProjectModal() {
+      document.getElementById('saveProjectModal').classList.add('hidden');
+      document.getElementById('projectTitleInput').value = '';
+      document.getElementById('projectDescInput').value = '';
+    }
+
+    // =========================================================================
+    // 5. MAP INITIALIZATION & 5 FREE BASEMAPS (ZERO API KEYS)
+    // =========================================================================
+    const BASEMAP_CONFIGS = {
+      dark: {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        filterClass: 'tiles-dark'
+      },
+      osm: {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        filterClass: 'tiles-osm'
+      },
+      light: {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        filterClass: 'tiles-light'
+      },
+      satellite: {
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+        filterClass: 'tiles-satellite'
+      },
+      topo: {
+        url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        maxZoom: 17,
+        attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+        filterClass: 'tiles-topo'
+      }
+    };
+
+    function initMap() {
+      map = L.map('map', {
+        center: [20, 0],
+        zoom: 2,
+        zoomControl: true,
+        attributionControl: true
+      });
+
+      setBasemap('dark');
+
+      drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      drawControl = new L.Control.Draw({
+        position: 'topleft',
+        draw: {
+          polygon: {
+            allowIntersection: true,
+            showArea: true,
+            shapeOptions: { color: '#6366f1', weight: 3, fillOpacity: 0.25 }
+          },
+          polyline: {
+            shapeOptions: { color: '#38bdf8', weight: 4 }
+          },
+          rectangle: {
+            shapeOptions: { color: '#10b981', weight: 3, fillOpacity: 0.2 }
+          },
+          circle: {
+            shapeOptions: { color: '#ec4899', weight: 3, fillOpacity: 0.2 }
+          },
+          circlemarker: false,
+          marker: {
+            icon: L.icon({
+              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+              iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+              iconSize: [25, 41],
+              iconAnchor: [12, 41],
+              popupAnchor: [1, -34]
+            })
+          }
+        },
+        edit: {
+          featureGroup: drawnItems,
+          remove: true
+        }
+      });
+      map.addControl(drawControl);
+
+      map.on(L.Draw.Event.CREATED, function (e) {
+        let layer = e.layer;
+        if (e.layerType === 'circle') {
+          layer = createPolygonFromCircle(layer.getLatLng(), layer.getRadius());
+        }
+
+        layer.feature = layer.feature || {
+          type: "Feature",
+          properties: {
+            name: "New " + (e.layerType ? capitalize(e.layerType) : "Feature")
+          },
+          geometry: layer.toGeoJSON().geometry
+        };
+
+        bindFeatureEvents(layer);
+        drawnItems.addLayer(layer);
+        syncMapToJson();
+        showToast("Feature added to map");
+      });
+
+      map.on(L.Draw.Event.EDITED, function () {
+        syncMapToJson();
+        showToast("Features updated");
+      });
+
+      map.on(L.Draw.Event.DELETED, function () {
+        syncMapToJson();
+        showToast("Features deleted");
+      });
+
+      map.on('mousemove', function (e) {
+        document.getElementById('cursorCoords').textContent =
+          `Lat: ${e.latlng.lat.toFixed(4)}, Lng: ${e.latlng.lng.toFixed(4)}`;
+      });
+    }
+
+    function setBasemap(key) {
+      if (!BASEMAP_CONFIGS[key]) return;
+      const config = BASEMAP_CONFIGS[key];
+
+      if (currentTileLayer && map.hasLayer(currentTileLayer)) {
+        map.removeLayer(currentTileLayer);
+      }
+
+      currentTileLayer = L.tileLayer(config.url, {
+        maxZoom: config.maxZoom,
+        attribution: config.attribution
+      }).addTo(map);
+
+      currentTileLayer.bringToBack();
+
+      const tilePane = map.getPane('tilePane');
+      if (tilePane) {
+        tilePane.className = 'leaflet-pane leaflet-tile-pane ' + config.filterClass;
+      }
+    }
+
+    function createPolygonFromCircle(center, radiusInMeters, points = 36) {
+      const coords = [];
+      const earthRadius = 6378137;
+      const d = radiusInMeters / earthRadius;
+      const lat1 = (Math.PI / 180) * center.lat;
+      const lng1 = (Math.PI / 180) * center.lng;
+
+      for (let x = 0; x <= points; x++) {
+        const brng = (x * 2 * Math.PI) / points;
+        const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(brng));
+        const lng2 = lng1 + Math.atan2(Math.sin(brng) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+        coords.push([lat2 * (180 / Math.PI), lng2 * (180 / Math.PI)]);
+      }
+
+      return L.polygon(coords, {
+        color: '#ec4899',
+        weight: 3,
+        fillOpacity: 0.25
+      });
+    }
+
+    function capitalize(s) {
+      return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+    }
+
+    // =========================================================================
+    // 6. NOMINATIM GEOCODER & OVERPASS API STRUCTURE EXTRACTOR
+    // =========================================================================
+    async function handleGeocoderSearch(e) {
+      e.preventDefault();
+      const query = document.getElementById('geocoderInput').value.trim();
+      if (!query) return;
+
+      const btn = document.getElementById('btnGeocodeSearch');
+      btn.textContent = '...';
+      btn.disabled = true;
+
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+        const results = await res.json();
+
+        if (results && results.length > 0) {
+          const place = results[0];
+          const bb = place.boundingbox;
+          if (bb && bb.length === 4) {
+            map.fitBounds([
+              [parseFloat(bb[0]), parseFloat(bb[2])],
+              [parseFloat(bb[1]), parseFloat(bb[3])]
+            ], { maxZoom: 16 });
+          } else {
+            map.flyTo([parseFloat(place.lat), parseFloat(place.lon)], 15);
+          }
+          showToast(`Jumped to ${place.display_name.split(',')[0]}`);
+        } else {
+          showToast("Location not found on OpenStreetMap", true);
+        }
+      } catch (err) {
+        showToast("Geocoder request failed", true);
+      } finally {
+        btn.textContent = 'Go';
+        btn.disabled = false;
+      }
+    }
+
+    const OSM_TAG_FILTERS = {
+      schools: ['["amenity"~"^(school|kindergarten)$"]'],
+      hospitals: ['["amenity"~"^(hospital|clinic)$"]'],
+      universities: ['["amenity"~"^(university|college)$"]'],
+      pharmacies: ['["amenity"="pharmacy"]'],
+      parks: ['["leisure"~"^(park|playground)$"]'],
+      police: ['["amenity"="police"]'],
+      fire_stations: ['["amenity"="fire_station"]'],
+      restaurants: ['["amenity"~"^(restaurant|cafe)$"]'],
+      banks: ['["amenity"~"^(bank|atm)$"]'],
+      supermarkets: ['["shop"="supermarket"]'],
+      buildings: ['["building"]']
+    };
+
+    async function executeOverpassQuery() {
+      const category = document.getElementById('osmCategorySelect').value;
+      const scope = document.querySelector('input[name="osmScope"]:checked').value;
+      const radius = parseInt(document.getElementById('osmRadiusSlider').value, 10);
+      const statusBox = document.getElementById('osmQueryStatus');
+      const resultActions = document.getElementById('osmResultActions');
+      const btn = document.getElementById('btnExecuteOsmQuery');
+
+      if (scope === 'bbox' && map.getZoom() < 12) {
+        statusBox.classList.remove('hidden');
+        statusBox.textContent = "Please zoom in closer (Zoom 12+) before querying the full viewport, or switch to Center Radius.";
+        showToast("Zoom in closer (Zoom 12+) to extract structures", true);
+        return;
+      }
+
+      let tagFilters = [];
+      if (category === 'custom') {
+        const k = document.getElementById('osmCustomKey').value.trim();
+        const v = document.getElementById('osmCustomVal').value.trim();
+        if (!k) {
+          showToast("Enter a custom OSM key", true);
+          return;
+        }
+        tagFilters = v && v !== '*' ? [`["${k}"="${v}"]`] : [`["${k}"]`];
+      } else {
+        tagFilters = OSM_TAG_FILTERS[category] || ['["amenity"="school"]'];
+      }
+
+      let areaFilter = '';
+      if (scope === 'radius') {
+        const center = map.getCenter();
+        areaFilter = `(around:${radius},${center.lat.toFixed(5)},${center.lng.toFixed(5)})`;
+      } else {
+        const b = map.getBounds();
+        areaFilter = `(${b.getSouth().toFixed(5)},${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)})`;
+      }
+
+      const statements = tagFilters.map(tf => `
+        node${tf}${areaFilter};
+        way${tf}${areaFilter};
+      `).join('\n');
+
+      const query = `
+        [out:json][timeout:25];
+        (
+          ${statements}
+        );
+        out geom 200;
+      `;
+
+      btn.disabled = true;
+      statusBox.classList.remove('hidden');
+      resultActions.classList.add('hidden');
+      statusBox.textContent = "Querying OpenStreetMap Overpass API...";
+
+      if (tempOsmLayer && map.hasLayer(tempOsmLayer)) {
+        map.removeLayer(tempOsmLayer);
+        tempOsmLayer = null;
+      }
+
+      const endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+      ];
+
+      let jsonResponse = null;
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep, {
+            method: 'POST',
+            body: 'data=' + encodeURIComponent(query),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          });
+          if (res.ok) {
+            jsonResponse = await res.json();
+            break;
+          }
+        } catch (e) {}
+      }
+
+      btn.disabled = false;
+
+      if (!jsonResponse || !jsonResponse.elements) {
+        statusBox.textContent = "Overpass API timed out or busy. Try zooming in or reducing search radius.";
+        return;
+      }
+
+      const features = convertOverpassElementsToFeatures(jsonResponse.elements);
+      if (features.length === 0) {
+        statusBox.textContent = "No matching structures found in this area.";
+        return;
+      }
+
+      tempOsmGeoJson = {
+        type: "FeatureCollection",
+        features
+      };
+
+      tempOsmLayer = L.geoJSON(tempOsmGeoJson, {
+        style: () => ({ color: '#10b981', weight: 2.5, fillColor: '#34d399', fillOpacity: 0.3 }),
+        pointToLayer: (feat, latlng) => L.circleMarker(latlng, {
+          radius: 7, fillColor: '#10b981', color: '#ffffff', weight: 2, fillOpacity: 0.9
+        })
+      }).addTo(map);
+
+      statusBox.classList.add('hidden');
+      resultActions.classList.remove('hidden');
+      document.getElementById('osmFoundCount').textContent = `${features.length} structures found`;
+      showToast(`Found ${features.length} OSM structures!`);
+    }
+
+    function convertOverpassElementsToFeatures(elements) {
+      const features = [];
+      elements.forEach(el => {
+        const props = {
+          osm_id: `${el.type}/${el.id}`,
+          ...(el.tags || {})
+        };
+        if (!props.name) {
+          props.name = props.amenity || props.leisure || props.shop || props.building || `OSM ${el.id}`;
+        }
+
+        if (el.type === 'node' && el.lat !== undefined && el.lon !== undefined) {
+          features.push({
+            type: "Feature",
+            properties: props,
+            geometry: { type: "Point", coordinates: [el.lon, el.lat] }
+          });
+        } else if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2) {
+          const coords = el.geometry.map(pt => [pt.lon, pt.lat]);
+          const first = coords[0];
+          const last = coords[coords.length - 1];
+          const isClosed = coords.length >= 4 && first[0] === last[0] && first[1] === last[1];
+
+          features.push({
+            type: "Feature",
+            properties: props,
+            geometry: isClosed
+              ? { type: "Polygon", coordinates: [coords] }
+              : { type: "LineString", coordinates: coords }
+          });
+        }
+      });
+      return features;
+    }
+
+    function applyOsmResults(mode = 'append') {
+      if (!tempOsmGeoJson || !tempOsmGeoJson.features.length) return;
+
+      let currentData = EMPTY_GEOJSON;
+      if (mode === 'append') {
+        try {
+          currentData = JSON.parse(aceEditor.getValue());
+          if (!Array.isArray(currentData.features)) currentData = { type: "FeatureCollection", features: [] };
+        } catch (e) {
+          currentData = { type: "FeatureCollection", features: [] };
+        }
+      } else {
+        currentData = { type: "FeatureCollection", features: [] };
+      }
+
+      const merged = {
+        type: "FeatureCollection",
+        features: [...currentData.features, ...tempOsmGeoJson.features]
+      };
+
+      if (tempOsmLayer && map.hasLayer(tempOsmLayer)) {
+        map.removeLayer(tempOsmLayer);
+        tempOsmLayer = null;
+      }
+
+      isProgrammaticUpdate = true;
+      aceEditor.setValue(JSON.stringify(merged, null, 2), -1);
+      isProgrammaticUpdate = false;
+      loadGeoJsonObject(merged, true);
+
+      document.getElementById('osmResultActions').classList.add('hidden');
+      tempOsmGeoJson = null;
+      showToast(mode === 'append' ? "Appended OSM structures to canvas" : "Replaced canvas with OSM structures");
+    }
+
+    // =========================================================================
+    // 7. ACE EDITOR & TWO-WAY SYNCHRONIZATION
+    // =========================================================================
+    function initEditor() {
+      aceEditor = ace.edit("editor");
+      aceEditor.setTheme("ace/theme/tomorrow_night_eighties");
+      aceEditor.session.setMode("ace/mode/json");
+      aceEditor.setOptions({
+        fontSize: "12px",
+        showPrintMargin: false,
+        useSoftTabs: true,
+        tabSize: 2,
+        wrap: true
+      });
+
+      aceEditor.setValue(JSON.stringify(EMPTY_GEOJSON, null, 2), -1);
+
+      aceEditor.session.on('change', function () {
+        if (isProgrammaticUpdate) return;
+        handleEditorInputChange();
+      });
+    }
+
+    function bindFeatureEvents(layer) {
+      if (!layer.feature) {
+        layer.feature = layer.toGeoJSON();
+      }
+      if (!layer.feature.properties) {
+        layer.feature.properties = {};
+      }
+
+      updateLayerPopup(layer);
+
+      layer.on('click', function (e) {
+        L.DomEvent.stopPropagation(e);
+        openPropertiesModal(layer);
+      });
+    }
+
+    function updateLayerPopup(layer) {
+      const props = layer.feature && layer.feature.properties ? layer.feature.properties : {};
+      const keys = Object.keys(props);
+      let content = `<div class="p-1 font-sans text-xs">`;
+      content += `<div class="font-bold text-slate-900 pb-1 border-b mb-1">Feature Properties</div>`;
+
+      if (keys.length === 0) {
+        content += `<span class="italic text-slate-400">Click shape to add attributes</span>`;
+      } else {
+        content += `<table class="w-full text-left text-slate-700"><tbody>`;
+        keys.slice(0, 6).forEach(k => {
+          content += `<tr><td class="font-medium pr-2 text-slate-500">${escapeHtml(k)}:</td><td class="truncate max-w-[140px] font-mono text-[11px]">${escapeHtml(String(props[k]))}</td></tr>`;
+        });
+        if (keys.length > 6) {
+          content += `<tr><td colspan="2" class="text-[10px] text-indigo-600 italic pt-1">+${keys.length - 6} more fields...</td></tr>`;
+        }
+        content += `</tbody></table>`;
+      }
+      content += `</div>`;
+      layer.bindPopup(content);
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    function syncMapToJson() {
+      if (isProgrammaticUpdate) return;
+      isProgrammaticUpdate = true;
+
+      const layers = drawnItems.getLayers();
+      const featureArray = [];
+
+      layers.forEach(layer => {
+        let geo = layer.toGeoJSON();
+        if (layer.feature && layer.feature.properties) {
+          geo.properties = { ...layer.feature.properties };
+        }
+        featureArray.push(geo);
+      });
+
+      const featureCollection = {
+        type: "FeatureCollection",
+        features: featureArray
+      };
+
+      aceEditor.setValue(JSON.stringify(featureCollection, null, 2), -1);
+      updateStats(featureArray.length);
+      renderTable(featureArray);
+      hideJsonError();
+
+      isProgrammaticUpdate = false;
+    }
+
+    let debounceTimer;
+    function handleEditorInputChange() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        try {
+          const rawText = aceEditor.getValue();
+          if (!rawText.trim()) return;
+
+          const parsed = JSON.parse(rawText);
+          hideJsonError();
+          loadGeoJsonObject(parsed, false);
+        } catch (err) {
+          showJsonError(err.message);
+        }
+      }, 400);
+    }
+
+    function showJsonError(msg) {
+      const errBar = document.getElementById('jsonErrorBar');
+      const errMsg = document.getElementById('jsonErrorMessage');
+      errBar.classList.remove('hidden');
+      errMsg.textContent = msg;
+    }
+
+    function hideJsonError() {
+      document.getElementById('jsonErrorBar').classList.add('hidden');
+    }
+
+    function loadGeoJsonObject(geoData, shouldFitBounds = true) {
+      isProgrammaticUpdate = true;
+      drawnItems.clearLayers();
+
+      try {
+        L.geoJSON(geoData, {
+          style: function () {
+            return {
+              color: '#6366f1',
+              weight: 3,
+              opacity: 0.9,
+              fillColor: '#818cf8',
+              fillOpacity: 0.25
+            };
+          },
+          pointToLayer: function (feature, latlng) {
+            return L.circleMarker(latlng, {
+              radius: 7,
+              fillColor: "#f59e0b",
+              color: "#ffffff",
+              weight: 2,
+              opacity: 1,
+              fillOpacity: 0.9
+            });
+          },
+          onEachFeature: function (feature, layer) {
+            bindFeatureEvents(layer);
+            drawnItems.addLayer(layer);
+          }
+        });
+
+        const totalFeatures = drawnItems.getLayers().length;
+        updateStats(totalFeatures);
+        renderTable(drawnItems.getLayers().map(l => l.feature || l.toGeoJSON()));
+
+        if (shouldFitBounds && totalFeatures > 0) {
+          try {
+            map.fitBounds(drawnItems.getBounds(), { padding: [40, 40], maxZoom: 16 });
+          } catch (e) {}
+        }
+      } catch (err) {
+        showJsonError("Rendering error: " + err.message);
+      } finally {
+        isProgrammaticUpdate = false;
+      }
+    }
+
+    // =========================================================================
+    // 8. ATTRIBUTES TABLE INSPECTOR & PROPERTY EDITOR
+    // =========================================================================
+    function renderTable(features) {
+      const container = document.getElementById('tableContainer');
+      const searchQuery = document.getElementById('tableSearch').value.toLowerCase().trim();
+
+      if (!features || features.length === 0) {
+        container.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-slate-500 p-6 text-center">
+            <i data-lucide="database" class="w-10 h-10 mb-2 opacity-40"></i>
+            <p class="text-sm">Empty GeoJSON Canvas</p>
+            <p class="text-xs text-slate-600 mt-1">Draw shapes on the map, query OSM structures, or load a saved record.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      const allKeys = new Set();
+      features.forEach(f => {
+        if (f.properties) {
+          Object.keys(f.properties).forEach(k => allKeys.add(k));
+        }
+      });
+      const keyList = Array.from(allKeys);
+
+      const filtered = features.map((f, originalIndex) => ({ f, originalIndex })).filter(item => {
+        if (!searchQuery) return true;
+        const p = item.f.properties || {};
+        return Object.entries(p).some(([k, v]) =>
+          String(k).toLowerCase().includes(searchQuery) ||
+          String(v).toLowerCase().includes(searchQuery)
+        ) || (item.f.geometry && item.f.geometry.type.toLowerCase().includes(searchQuery));
+      });
+
+      let html = `
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-800 text-slate-300 border-b border-slate-700 sticky top-0 z-10">
+              <th class="p-2 font-semibold">#</th>
+              <th class="p-2 font-semibold">Type</th>
+              ${keyList.map(k => `<th class="p-2 font-semibold">${escapeHtml(k)}</th>`).join('')}
+              <th class="p-2 font-semibold text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+      `;
+
+      filtered.forEach((item) => {
+        const feat = item.f;
+        const geomType = feat.geometry ? feat.geometry.type : 'Unknown';
+        const props = feat.properties || {};
+
+        html += `
+          <tr class="hover:bg-slate-800/50 text-slate-300 transition">
+            <td class="p-2 font-mono text-[11px] text-slate-500">${item.originalIndex + 1}</td>
+            <td class="p-2 font-medium">
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800/60">
+                ${geomType}
+              </span>
+            </td>
+            ${keyList.map(k => {
+              const val = props[k] !== undefined ? props[k] : '';
+              return `<td class="p-2 max-w-[130px] truncate" title="${escapeHtml(String(val))}">${escapeHtml(String(val))}</td>`;
+            }).join('')}
+            <td class="p-2 text-right whitespace-nowrap">
+              <button onclick="inspectFeatureByIndex(${item.originalIndex})" class="p-1 hover:text-indigo-400 text-slate-400 rounded transition" title="Edit Properties">
+                <i data-lucide="edit-2" class="w-3.5 h-3.5 inline"></i>
+              </button>
+              <button onclick="deleteFeatureByIndex(${item.originalIndex})" class="p-1 hover:text-rose-400 text-slate-400 rounded transition ml-1" title="Delete Feature">
+                <i data-lucide="trash" class="w-3.5 h-3.5 inline"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += `</tbody></table>`;
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function openPropertiesModal(layer) {
+      currentSelectedLayer = layer;
+      const modal = document.getElementById('propModal');
+      const container = document.getElementById('propsContainer');
+      const typeLabel = document.getElementById('modalGeometryType');
+
+      const geomType = layer.feature && layer.feature.geometry
+        ? layer.feature.geometry.type
+        : (layer.toGeoJSON().geometry ? layer.toGeoJSON().geometry.type : 'Feature');
+      typeLabel.textContent = `Geometry: ${geomType}`;
+      container.innerHTML = '';
+
+      const props = (layer.feature && layer.feature.properties) ? layer.feature.properties : {};
+      const keys = Object.keys(props);
+      if (keys.length === 0) {
+        addPropertyRow('', '');
+      } else {
+        keys.forEach(k => addPropertyRow(k, props[k]));
+      }
+
+      modal.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function addPropertyRow(key = '', val = '') {
+      const container = document.getElementById('propsContainer');
+      const row = document.createElement('div');
+      row.className = "flex items-center space-x-2 prop-row";
+      row.innerHTML = `
+        <input type="text" placeholder="Key" value="${escapeHtml(key)}" class="prop-key w-1/3 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+        <input type="text" placeholder="Value" value="${escapeHtml(String(val))}" class="prop-val flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+        <button type="button" onclick="this.parentElement.remove()" class="text-slate-500 hover:text-rose-400 p-1.5 rounded transition">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+      `;
+      container.appendChild(row);
+      lucide.createIcons();
+    }
+
+    window.inspectFeatureByIndex = function (idx) {
+      const layers = drawnItems.getLayers();
+      if (layers[idx]) {
+        openPropertiesModal(layers[idx]);
+        const center = layers[idx].getBounds ? layers[idx].getBounds().getCenter() : layers[idx].getLatLng();
+        map.panTo(center);
+      }
+    };
+
+    window.deleteFeatureByIndex = function (idx) {
+      const layers = drawnItems.getLayers();
+      if (layers[idx]) {
+        drawnItems.removeLayer(layers[idx]);
+        syncMapToJson();
+        showToast("Feature deleted");
+      }
+    };
+
+    function savePropertiesFromModal() {
+      if (!currentSelectedLayer) return;
+      const rows = document.querySelectorAll('.prop-row');
+      const newProps = {};
+
+      rows.forEach(r => {
+        const k = r.querySelector('.prop-key').value.trim();
+        const v = r.querySelector('.prop-val').value.trim();
+        if (k) {
+          if (!isNaN(v) && v !== '') {
+            newProps[k] = Number(v);
+          } else if (v.toLowerCase() === 'true') {
+            newProps[k] = true;
+          } else if (v.toLowerCase() === 'false') {
+            newProps[k] = false;
+          } else {
+            newProps[k] = v;
+          }
+        }
+      });
+
+      if (!currentSelectedLayer.feature) {
+        currentSelectedLayer.feature = currentSelectedLayer.toGeoJSON();
+      }
+      currentSelectedLayer.feature.properties = newProps;
+
+      updateLayerPopup(currentSelectedLayer);
+      syncMapToJson();
+      closeModal();
+      showToast("Properties saved");
+    }
+
+    function closeModal() {
+      document.getElementById('propModal').classList.add('hidden');
+      currentSelectedLayer = null;
+    }
+
+    // =========================================================================
+    // 9. IMPORT & EXPORT (GEOJSON, KML, TOPOJSON, CSV, CLIPBOARD)
+    // =========================================================================
+    function downloadFile(content, fileName, contentType) {
+      const a = document.createElement("a");
+      const file = new Blob([content], { type: contentType });
+      a.href = URL.createObjectURL(file);
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(a.href);
+      }, 0);
+    }
+
+    function exportGeoJsonFile() {
+      downloadFile(aceEditor.getValue(), "map-data.geojson", "application/geo+json");
+      showToast("Downloaded GeoJSON");
+    }
+
+    function exportCsvFile() {
+      const layers = drawnItems.getLayers();
+      if (layers.length === 0) {
+        showToast("No features to export", true);
+        return;
+      }
+
+      const allKeys = new Set(["id", "geometry_type"]);
+      layers.forEach(l => {
+        const p = (l.feature && l.feature.properties) ? l.feature.properties : {};
+        Object.keys(p).forEach(k => allKeys.add(k));
+      });
+
+      const headers = Array.from(allKeys);
+      let csv = headers.map(h => `"${h.replace(/"/g, '""')}"`).join(",") + "\n";
+
+      layers.forEach((l, index) => {
+        const feat = l.toGeoJSON();
+        const props = (l.feature && l.feature.properties) ? l.feature.properties : {};
+        const row = headers.map(h => {
+          if (h === 'id') return index + 1;
+          if (h === 'geometry_type') return feat.geometry ? feat.geometry.type : '';
+          const val = props[h] !== undefined ? props[h] : '';
+          return `"${String(val).replace(/"/g, '""')}"`;
+        });
+        csv += row.join(",") + "\n";
+      });
+
+      downloadFile(csv, "features.csv", "text/csv;charset=utf-8;");
+      showToast("Exported CSV");
+    }
+
+    function exportKmlFile() {
+      try {
+        const geojson = JSON.parse(aceEditor.getValue());
+        let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n`;
+
+        const features = geojson.features || [];
+        features.forEach((f, idx) => {
+          const props = f.properties || {};
+          const name = props.name || `Feature ${idx + 1}`;
+          let desc = Object.entries(props).map(([k, v]) => `${k}: ${v}`).join('\n');
+
+          kml += `  <Placemark>\n    <name>${escapeHtml(name)}</name>\n    <description>${escapeHtml(desc)}</description>\n`;
+
+          if (f.geometry) {
+            const type = f.geometry.type;
+            const coords = f.geometry.coordinates;
+
+            if (type === 'Point') {
+              kml += `    <Point><coordinates>${coords[0]},${coords[1]}</coordinates></Point>\n`;
+            } else if (type === 'LineString') {
+              kml += `    <LineString><coordinates>${coords.map(c => `${c[0]},${c[1]}`).join(' ')}</coordinates></LineString>\n`;
+            } else if (type === 'Polygon') {
+              kml += `    <Polygon><outerBoundaryIs><LinearRing><coordinates>${coords[0].map(c => `${c[0]},${c[1]}`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>\n`;
+            }
+          }
+          kml += `  </Placemark>\n`;
+        });
+
+        kml += `</Document>\n</kml>`;
+        downloadFile(kml, "map-data.kml", "application/vnd.google-earth.kml+xml");
+        showToast("Downloaded KML");
+      } catch (err) {
+        showToast("Export error: Invalid GeoJSON", true);
+      }
+    }
+
+    function exportTopoJsonFile() {
+      try {
+        const geojson = JSON.parse(aceEditor.getValue());
+        const topo = {
+          type: "Topology",
+          objects: {
+            features: geojson
+          }
+        };
+        downloadFile(JSON.stringify(topo, null, 2), "map-data.topojson", "application/json");
+        showToast("Downloaded TopoJSON");
+      } catch (err) {
+        showToast("Cannot export invalid GeoJSON", true);
+      }
+    }
+
+    function copyJsonToClipboard() {
+      const text = aceEditor.getValue();
+      const dummy = document.createElement("textarea");
+      document.body.appendChild(dummy);
+      dummy.value = text;
+      dummy.select();
+      document.execCommand("copy");
+      document.body.removeChild(dummy);
+      showToast("Copied GeoJSON to clipboard");
+    }
+
+    function parseKmlToGeoJson(kmlText) {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(kmlText, "text/xml");
+      const placemarks = xmlDoc.getElementsByTagName("Placemark");
+      const features = [];
+
+      for (let i = 0; i < placemarks.length; i++) {
+        const pm = placemarks[i];
+        const nameNode = pm.getElementsByTagName("name")[0];
+        const name = nameNode ? nameNode.textContent : `Placemark ${i + 1}`;
+        const props = { name };
+
+        const pointNode = pm.getElementsByTagName("Point")[0];
+        const lineNode = pm.getElementsByTagName("LineString")[0];
+        const polyNode = pm.getElementsByTagName("Polygon")[0];
+
+        if (pointNode) {
+          const coords = pointNode.getElementsByTagName("coordinates")[0].textContent.trim().split(',');
+          features.push({
+            type: "Feature",
+            properties: props,
+            geometry: { type: "Point", coordinates: [parseFloat(coords[0]), parseFloat(coords[1])] }
+          });
+        } else if (lineNode) {
+          const rawCoords = lineNode.getElementsByTagName("coordinates")[0].textContent.trim().split(/\s+/);
+          const coords = rawCoords.map(c => {
+            const pt = c.split(',');
+            return [parseFloat(pt[0]), parseFloat(pt[1])];
+          });
+          features.push({
+            type: "Feature",
+            properties: props,
+            geometry: { type: "LineString", coordinates: coords }
+          });
+        } else if (polyNode) {
+          const rawCoords = polyNode.getElementsByTagName("coordinates")[0].textContent.trim().split(/\s+/);
+          const coords = rawCoords.map(c => {
+            const pt = c.split(',');
+            return [parseFloat(pt[0]), parseFloat(pt[1])];
+          });
+          features.push({
+            type: "Feature",
+            properties: props,
+            geometry: { type: "Polygon", coordinates: [coords] }
+          });
+        }
+      }
+
+      return {
+        type: "FeatureCollection",
+        features
+      };
+    }
+
+    function handleFileInput(file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          const content = e.target.result;
+          let parsed;
+          if (file.name.endsWith('.kml')) {
+            parsed = parseKmlToGeoJson(content);
+          } else {
+            const json = JSON.parse(content);
+            if (json.type === 'Topology' && window.topojson) {
+              const firstKey = Object.keys(json.objects)[0];
+              parsed = topojson.feature(json, json.objects[firstKey]);
+            } else {
+              parsed = json;
+            }
+          }
+          isProgrammaticUpdate = true;
+          aceEditor.setValue(JSON.stringify(parsed, null, 2), -1);
+          isProgrammaticUpdate = false;
+          loadGeoJsonObject(parsed, true);
+          showToast(`Imported ${file.name}`);
+        } catch (err) {
+          showToast("Failed to parse file: " + err.message, true);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // =========================================================================
+    // 10. USER MANAGER UI & EVENT BINDINGS
+    // =========================================================================
+    function renderUsersRegistryList() {
+      const list = document.getElementById('usersRegistryList');
+      let html = '';
+      authorizedUsers.forEach(u => {
+        const isCurrent = currentUser && currentUser.username.toLowerCase() === u.username.toLowerCase();
+        html += `
+          <div class="flex items-center justify-between bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg">
+            <div>
+              <div class="font-semibold text-white flex items-center gap-1.5">
+                <span>${escapeHtml(u.username)}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/60">${escapeHtml(u.role || 'Editor')}</span>
+                ${isCurrent ? '<span class="text-[10px] text-emerald-400">(Active)</span>' : ''}
+              </div>
+              <div class="text-[10px] text-slate-500 font-mono">Password: ${escapeHtml(u.password)}</div>
+            </div>
+            ${!isCurrent ? `
+              <button onclick="removeAuthorizedUser('${escapeHtml(u.username)}')" class="p-1.5 text-slate-400 hover:text-rose-400 rounded transition" title="Remove User">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
+            ` : ''}
+          </div>
+        `;
+      });
+      list.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    window.removeAuthorizedUser = async function(username) {
+      authorizedUsers = authorizedUsers.filter(u => u.username.toLowerCase() !== username.toLowerCase());
+      saveLocalUsersRegistry();
+      if (isCloudConnected && supabaseClient) {
+        try {
+          await supabaseClient.from('studio_users').delete().eq('username', username.toLowerCase());
+        } catch (e) {}
+      }
+      renderUsersRegistryList();
+      showToast(`Removed user "${username}"`);
+    };
+
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMessage');
+      const toastIcon = document.getElementById('toastIcon');
+
+      toastMsg.textContent = message;
+      if (isError) {
+        toastIcon.setAttribute('data-lucide', 'alert-circle');
+        toastIcon.className = "w-4 h-4 text-rose-400";
+      } else {
+        toastIcon.setAttribute('data-lucide', 'check-circle');
+        toastIcon.className = "w-4 h-4 text-emerald-400";
+      }
+      lucide.createIcons();
+
+      toast.classList.remove('opacity-0', 'translate-y-3');
+      toast.classList.add('opacity-100', 'translate-y-0');
+
+      setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', 'translate-y-3');
+      }, 2600);
+    }
+
+    function updateStats(count) {
+      document.getElementById('featureCount').textContent = `${count} ${count === 1 ? 'feature' : 'features'}`;
+    }
+
+    function setupEventListeners() {
+      // Login & Auth File Upload
+      document.getElementById('loginForm').addEventListener('submit', handleLoginSubmit);
+      const authFileInput = document.getElementById('authFileInput');
+      document.getElementById('btnUploadAuthFile').addEventListener('click', () => authFileInput.click());
+      authFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          const file = e.target.files[0];
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const count = parseCredentialsFile(ev.target.result);
+            document.getElementById('authFileStatus').textContent = `Loaded ${count} user account(s) from ${file.name}.`;
+            showToast(`Imported ${count} credentials from ${file.name}`);
+          };
+          reader.readAsText(file);
+        }
+      });
+
+      document.getElementById('btnLogout').addEventListener('click', logoutUser);
+
+      // User Manager Modal
+      const userManagerModal = document.getElementById('userManagerModal');
+      document.getElementById('btnOpenUserManager').addEventListener('click', () => {
+        renderUsersRegistryList();
+        userManagerModal.classList.remove('hidden');
+      });
+      document.getElementById('btnCloseUserManager').addEventListener('click', () => userManagerModal.classList.add('hidden'));
+      document.getElementById('btnDoneUserManager').addEventListener('click', () => userManagerModal.classList.add('hidden'));
+
+      document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const u = document.getElementById('newUserUsername').value.trim();
+        const p = document.getElementById('newUserPassword').value.trim();
+        const r = document.getElementById('newUserRole').value;
+        if (u && p) {
+          await upsertAuthorizedUser(u, p, r);
+          document.getElementById('newUserUsername').value = '';
+          document.getElementById('newUserPassword').value = '';
+          renderUsersRegistryList();
+          showToast(`Registered user "${u}"`);
+        }
+      });
+
+      document.getElementById('btnExportUsersTxt').addEventListener('click', () => {
+        const lines = ["# username:password:role", ...authorizedUsers.map(u => `${u.username}:${u.password}:${u.role || 'Editor'}`)];
+        downloadFile(lines.join('\n'), 'users.txt', 'text/plain');
+        showToast("Exported users.txt");
+      });
+
+      // Geocoder Search
+      document.getElementById('geocoderForm').addEventListener('submit', handleGeocoderSearch);
+
+      // OSM Overpass Panel
+      const osmPanel = document.getElementById('osmQueryPanel');
+      const recordsDrawer = document.getElementById('recordsDrawer');
+
+      document.getElementById('btnToggleOsmPanel').addEventListener('click', () => {
+        recordsDrawer.classList.add('hidden');
+        osmPanel.classList.toggle('hidden');
+      });
+      document.getElementById('btnCloseOsmPanel').addEventListener('click', () => osmPanel.classList.add('hidden'));
+
+      document.getElementById('osmCategorySelect').addEventListener('change', (e) => {
+        document.getElementById('osmCustomTagRow').classList.toggle('hidden', e.target.value !== 'custom');
+      });
+
+      document.querySelectorAll('input[name="osmScope"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          document.getElementById('osmRadiusRow').classList.toggle('hidden', e.target.value !== 'radius');
+        });
+      });
+
+      document.getElementById('osmRadiusSlider').addEventListener('input', (e) => {
+        document.getElementById('osmRadiusLabel').textContent = `${e.target.value} m`;
+      });
+
+      document.getElementById('btnExecuteOsmQuery').addEventListener('click', executeOverpassQuery);
+      document.getElementById('btnAppendOsmFeatures').addEventListener('click', () => applyOsmResults('append'));
+      document.getElementById('btnReplaceOsmFeatures').addEventListener('click', () => applyOsmResults('replace'));
+      document.getElementById('btnClearOsmPreview').addEventListener('click', () => {
+        if (tempOsmLayer && map.hasLayer(tempOsmLayer)) {
+          map.removeLayer(tempOsmLayer);
+          tempOsmLayer = null;
+        }
+        tempOsmGeoJson = null;
+        document.getElementById('osmResultActions').classList.add('hidden');
+      });
+
+      // Private Records Vault Drawer & Save Modal
+      document.getElementById('btnToggleRecords').addEventListener('click', () => {
+        osmPanel.classList.add('hidden');
+        recordsDrawer.classList.toggle('hidden');
+        if (!recordsDrawer.classList.contains('hidden')) {
+          renderRecordsList();
+        }
+      });
+      document.getElementById('btnCloseRecordsDrawer').addEventListener('click', () => recordsDrawer.classList.add('hidden'));
+      document.getElementById('recordsSearchInput').addEventListener('input', renderRecordsList);
+      document.getElementById('btnRefreshRecords').addEventListener('click', async () => {
+        await loadUserPrivateRecords();
+        showToast("Synced records with cloud vault");
+      });
+
+      const saveProjectModal = document.getElementById('saveProjectModal');
+      document.getElementById('btnOpenSaveProject').addEventListener('click', () => {
+        saveProjectModal.classList.remove('hidden');
+        document.getElementById('projectTitleInput').focus();
+      });
+      document.getElementById('btnCloseSaveProject').addEventListener('click', closeSaveProjectModal);
+      document.getElementById('btnCancelSaveProject').addEventListener('click', closeSaveProjectModal);
+      document.getElementById('btnConfirmSaveProject').addEventListener('click', saveCurrentMapRecord);
+
+      // Split pane drag resizer
+      const splitter = document.getElementById('dragDivider');
+      const mapWrapper = document.getElementById('mapWrapper');
+      const sidePanel = document.getElementById('sidePanel');
+      let isDragging = false;
+
+      splitter.addEventListener('mousedown', () => {
+        isDragging = true;
+        splitter.classList.add('dragging');
+        document.body.style.cursor = window.innerWidth >= 768 ? 'col-resize' : 'row-resize';
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const isDesktop = window.innerWidth >= 768;
+        if (isDesktop) {
+          const leftPercent = Math.min(Math.max((e.clientX / window.innerWidth) * 100, 20), 80);
+          mapWrapper.style.width = `${leftPercent}%`;
+          sidePanel.style.width = `${100 - leftPercent}%`;
+        } else {
+          const containerHeight = window.innerHeight - 56;
+          const topPercent = Math.min(Math.max(((e.clientY - 56) / containerHeight) * 100, 20), 80);
+          mapWrapper.style.height = `${topPercent}%`;
+          sidePanel.style.height = `${100 - topPercent}%`;
+        }
+        map.invalidateSize();
+        if (aceEditor) aceEditor.resize();
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          splitter.classList.remove('dragging');
+          document.body.style.cursor = 'default';
+          map.invalidateSize();
+          if (aceEditor) aceEditor.resize();
+        }
+      });
+
+      // Editor vs Table Tab Switcher
+      const tabJson = document.getElementById('tabJson');
+      const tabTable = document.getElementById('tabTable');
+      const panelJson = document.getElementById('panelJson');
+      const panelTable = document.getElementById('panelTable');
+      const jsonActionGroup = document.getElementById('jsonActionGroup');
+      const tableActionGroup = document.getElementById('tableActionGroup');
+
+      tabJson.addEventListener('click', () => {
+        tabJson.classList.add('border-indigo-500', 'text-indigo-400', 'bg-slate-800/60');
+        tabJson.classList.remove('border-transparent', 'text-slate-400');
+        tabTable.classList.remove('border-indigo-500', 'text-indigo-400', 'bg-slate-800/60');
+        tabTable.classList.add('border-transparent', 'text-slate-400');
+        panelJson.classList.remove('hidden');
+        panelTable.classList.add('hidden');
+        jsonActionGroup.classList.remove('hidden');
+        tableActionGroup.classList.add('hidden');
+        if (aceEditor) aceEditor.resize();
+      });
+
+      tabTable.addEventListener('click', () => {
+        tabTable.classList.add('border-indigo-500', 'text-indigo-400', 'bg-slate-800/60');
+        tabTable.classList.remove('border-transparent', 'text-slate-400');
+        tabJson.classList.remove('border-indigo-500', 'text-indigo-400', 'bg-slate-800/60');
+        tabJson.classList.add('border-transparent', 'text-slate-400');
+        panelTable.classList.remove('hidden');
+        panelJson.classList.add('hidden');
+        jsonActionGroup.classList.add('hidden');
+        tableActionGroup.classList.remove('hidden');
+        renderTable(drawnItems.getLayers().map(l => l.feature || l.toGeoJSON()));
+      });
+
+      // 5 Basemaps Switcher
+      [
+        { id: 'bmDark', key: 'dark' },
+        { id: 'bmOsm', key: 'osm' },
+        { id: 'bmLight', key: 'light' },
+        { id: 'bmSatellite', key: 'satellite' },
+        { id: 'bmTopo', key: 'topo' }
+      ].forEach(({ id, key }) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+          btn.addEventListener('click', function () {
+            document.querySelectorAll('.basemap-btn').forEach(b => {
+              b.classList.remove('bg-indigo-600', 'text-white');
+              b.classList.add('text-slate-300');
+            });
+            this.classList.add('bg-indigo-600', 'text-white');
+            this.classList.remove('text-slate-300');
+            setBasemap(key);
+            showToast(`Switched to ${key.toUpperCase()} basemap`);
+          });
+        }
+      });
+
+      // Drag & Drop GeoJSON/KML/TopoJSON onto window
+      const dropOverlay = document.getElementById('dropOverlay');
+      window.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        if (!currentUser) return;
+        dropOverlay.classList.remove('hidden');
+        dropOverlay.classList.add('flex');
+      });
+      window.addEventListener('dragover', (e) => e.preventDefault());
+      dropOverlay.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropOverlay.classList.add('hidden');
+        dropOverlay.classList.remove('flex');
+      });
+      window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropOverlay.classList.add('hidden');
+        dropOverlay.classList.remove('flex');
+        if (currentUser && e.dataTransfer && e.dataTransfer.files.length > 0) {
+          handleFileInput(e.dataTransfer.files[0]);
+        }
+      });
+
+      // File Picker
+      const fileInput = document.getElementById('fileInput');
+      document.getElementById('btnOpen').addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleFileInput(e.target.files[0]);
+      });
+
+      // Clear Canvas Modal
+      const clearModal = document.getElementById('confirmClearModal');
+      document.getElementById('btnClear').addEventListener('click', () => clearModal.classList.remove('hidden'));
+      document.getElementById('btnCancelClear').addEventListener('click', () => clearModal.classList.add('hidden'));
+      document.getElementById('btnConfirmClear').addEventListener('click', () => {
+        resetCanvasToEmpty();
+        clearModal.classList.add('hidden');
+        showToast("Canvas cleared");
+      });
+
+      // Fit Map & Add Column Modal
+      document.getElementById('btnFitMapFeatures').addEventListener('click', () => {
+        if (drawnItems.getLayers().length > 0) {
+          map.fitBounds(drawnItems.getBounds(), { padding: [40, 40] });
+        }
+      });
+
+      const addColModal = document.getElementById('addColumnModal');
+      document.getElementById('btnAddColumnBtn').addEventListener('click', () => {
+        document.getElementById('newColumnNameInput').value = '';
+        addColModal.classList.remove('hidden');
+        document.getElementById('newColumnNameInput').focus();
+      });
+      document.getElementById('btnCancelAddColumn').addEventListener('click', () => addColModal.classList.add('hidden'));
+      document.getElementById('btnConfirmAddColumn').addEventListener('click', () => {
+        const fieldName = document.getElementById('newColumnNameInput').value.trim();
+        if (fieldName) {
+          drawnItems.getLayers().forEach(l => {
+            if (!l.feature) l.feature = l.toGeoJSON();
+            if (!l.feature.properties) l.feature.properties = {};
+            if (l.feature.properties[fieldName] === undefined) {
+              l.feature.properties[fieldName] = "";
+            }
+          });
+          syncMapToJson();
+          showToast(`Added field "${fieldName}"`);
+        }
+        addColModal.classList.add('hidden');
+      });
+
+      // Table Search
+      document.getElementById('tableSearch').addEventListener('input', () => {
+        renderTable(drawnItems.getLayers().map(l => l.feature || l.toGeoJSON()));
+      });
+
+      // Export Dropdown
+      const exportToggle = document.getElementById('btnExportToggle');
+      const exportDropdown = document.getElementById('exportDropdown');
+      exportToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        exportDropdown.classList.toggle('hidden');
+      });
+      window.addEventListener('click', () => exportDropdown.classList.add('hidden'));
+
+      document.getElementById('btnDownloadGeoJSON').addEventListener('click', exportGeoJsonFile);
+      document.getElementById('btnDownloadKML').addEventListener('click', exportKmlFile);
+      document.getElementById('btnDownloadCSV').addEventListener('click', exportCsvFile);
+      document.getElementById('btnDownloadTopoJSON').addEventListener('click', exportTopoJsonFile);
+      document.getElementById('btnCopyJSON').addEventListener('click', copyJsonToClipboard);
+
+      // JSON Beautifier
+      document.getElementById('btnFormatJson').addEventListener('click', () => {
+        try {
+          const obj = JSON.parse(aceEditor.getValue());
+          aceEditor.setValue(JSON.stringify(obj, null, 2), -1);
+          showToast("GeoJSON beautified");
+        } catch (e) {
+          showToast("Cannot format invalid JSON", true);
+        }
+      });
+
+      // Property Editor Modal
+      document.getElementById('btnAddPropertyRow').addEventListener('click', () => addPropertyRow());
+      document.getElementById('btnSaveProps').addEventListener('click', savePropertiesFromModal);
+      document.getElementById('btnCancelProps').addEventListener('click', closeModal);
+      document.getElementById('btnCloseModal').addEventListener('click', closeModal);
+      document.getElementById('btnDeleteFeatureModal').addEventListener('click', () => {
+        if (currentSelectedLayer) {
+          drawnItems.removeLayer(currentSelectedLayer);
+          closeModal();
+          syncMapToJson();
+          showToast("Feature deleted");
+        }
+      });
+    }
+
+    // =========================================================================
+    // 11. BOOTSTRAP APPLICATION
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', async () => {
+      lucide.createIcons();
+      initSupabase();
+      initMap();
+      initEditor();
+      setupEventListeners();
+      await loadAuthorizedUsers();
+
+      // Restore active user session if present
+      const savedSession = sessionStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION);
+      if (savedSession) {
+        try {
+          currentUser = JSON.parse(savedSession);
+          if (currentUser && currentUser.username) {
+            await enterAuthenticatedWorkspace();
+          }
+        } catch (e) {}
+      }
+    });
+  </script>
+</body>
+</html>
